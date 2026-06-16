@@ -669,6 +669,9 @@ fn upgrade_safety_gate_blocks_upgrade_outside_window() {
     let client = seed_admin_role(&env, &gs.contract_id, &gs.admin);
     let dummy_hash = BytesN::from_array(&env, &[0; 32]);
 
+    // Register the current contract's WASM under the dummy_hash for testing
+    env.register_at(&dummy_hash, RustAcademyContract, ());
+
     // Window not set → upgrades blocked.
     let result = client.try_start_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION, &dummy_hash);
     assert!(
@@ -693,11 +696,8 @@ fn upgrade_safety_gate_blocks_upgrade_outside_window() {
 
     client.start_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION, &dummy_hash);
 
-    // upgrade() must be called before complete_upgrade()
-    // For test simplicity, we bypass actual WASM swap by manually setting the hash in storage
-    env.as_contract(&gs.contract_id, || {
-        crate::storage::set_wasm_hash(&env, &dummy_hash);
-    });
+    // Perform actual upgrade() (now that we've registered the WASM hash!)
+    client.upgrade(&gs.admin, &dummy_hash);
 
     // complete_upgrade internally calls migrate and finalizes the upgrade.
     client.complete_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION);
@@ -720,16 +720,17 @@ fn upgrade_safety_gate_post_upgrade_invariants_enforced() {
     let client = seed_admin_role(&env, &gs.contract_id, &gs.admin);
     let dummy_hash = BytesN::from_array(&env, &[0; 32]);
 
+    // Register the current contract's WASM under the dummy_hash for testing
+    env.register_at(&dummy_hash, RustAcademyContract, ());
+
     // Set a valid window: start=1 (before current timestamp 200), end=0 (no upper bound).
     client.set_upgrade_window(&gs.admin, &1u64, &0u64);
 
     // Attempt a normal upgrade: should validate invariants post-migrate.
     client.start_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION, &dummy_hash);
 
-    // Manually set hash to match pending
-    env.as_contract(&gs.contract_id, || {
-        crate::storage::set_wasm_hash(&env, &dummy_hash);
-    });
+    // Perform actual upgrade() instead of manually setting storage
+    client.upgrade(&gs.admin, &dummy_hash);
 
     // complete_upgrade internally calls migrate and finalizes the upgrade.
     let version = client.complete_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION);
@@ -751,26 +752,27 @@ fn upgrade_safety_gate_invariant_failure_deterministic() {
     let client = seed_admin_role(&env, &gs.contract_id, &gs.admin);
     let dummy_hash = BytesN::from_array(&env, &[0; 32]);
 
+    // Register the current contract's WASM under the dummy_hash for testing
+    env.register_at(&dummy_hash, RustAcademyContract, ());
+
     // Set valid window and start upgrade.
     client.set_upgrade_window(&gs.admin, &1u64, &0u64);
     client.start_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION, &dummy_hash);
 
-    // Manually set hash to match pending
-    env.as_contract(&gs.contract_id, || {
-        crate::storage::set_wasm_hash(&env, &dummy_hash);
-    });
+    // Perform actual upgrade()
+    client.upgrade(&gs.admin, &dummy_hash);
 
     // Deliberately corrupt fee config to violate invariant (fee_bps > 10_000).
     env.as_contract(&gs.contract_id, || {
         crate::storage::set_fee_config(&env, &FeeConfig { fee_bps: 99999 });
     });
 
-    // migrate must fail deterministically when invariants are violated (AC2).
-    let result = client.try_migrate(&gs.admin);
+    // complete_upgrade must fail deterministically when invariants are violated (AC2).
+    let result = client.try_complete_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION);
     assert_eq!(
         result,
         Err(Ok( RustAcademyError::InternalError)),
-        "migrate must fail with InternalError when invariants are violated"
+        "complete_upgrade must fail with InternalError when invariants are violated"
     );
 
     // Restore fee config and complete the upgrade cleanly.
@@ -787,6 +789,9 @@ fn upgrade_safety_gate_emits_events() {
     let client = seed_admin_role(&env, &gs.contract_id, &gs.admin);
     let dummy_hash = BytesN::from_array(&env, &[0; 32]);
 
+    // Register the current contract's WASM under the dummy_hash for testing
+    env.register_at(&dummy_hash, RustAcademyContract, ());
+
     // Set a valid window.
     client.set_upgrade_window(&gs.admin, &1u64, &0u64);
 
@@ -796,10 +801,8 @@ fn upgrade_safety_gate_emits_events() {
     // Start upgrade → should emit UpgradeStarted event.
     client.start_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION, &dummy_hash);
 
-    // Manually set hash to match pending
-    env.as_contract(&gs.contract_id, || {
-        crate::storage::set_wasm_hash(&env, &dummy_hash);
-    });
+    // Perform actual upgrade()
+    client.upgrade(&gs.admin, &dummy_hash);
 
     // Complete upgrade → internally calls migrate and emits UpgradeCompleted event.
     client.complete_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION);
@@ -818,6 +821,9 @@ fn upgrade_safety_gate_blocks_double_start() {
     let client = seed_admin_role(&env, &gs.contract_id, &gs.admin);
     let dummy_hash = BytesN::from_array(&env, &[0; 32]);
 
+    // Register the current contract's WASM under the dummy_hash for testing
+    env.register_at(&dummy_hash, RustAcademyContract, ());
+
     client.set_upgrade_window(&gs.admin, &1u64, &0u64);
 
     // First start succeeds.
@@ -830,10 +836,8 @@ fn upgrade_safety_gate_blocks_double_start() {
         "start_upgrade must fail when upgrade already in progress"
     );
 
-    // Manually set hash to match pending
-    env.as_contract(&gs.contract_id, || {
-        crate::storage::set_wasm_hash(&env, &dummy_hash);
-    });
+    // Perform actual upgrade()
+    client.upgrade(&gs.admin, &dummy_hash);
 
     // Clean up by completing the upgrade (internally calls migrate).
     client.complete_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION);
@@ -883,6 +887,9 @@ fn upgrade_safety_gate_blocks_upgrade_with_wrong_hash() {
     let correct_hash = BytesN::from_array(&env, &[1; 32]);
     let wrong_hash = BytesN::from_array(&env, &[2; 32]);
 
+    // Register the current contract's WASM under the correct_hash for testing
+    env.register_at(&correct_hash, RustAcademyContract, ());
+
     client.set_upgrade_window(&gs.admin, &1u64, &0u64);
     client.start_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION, &correct_hash);
 
@@ -925,6 +932,9 @@ fn upgrade_safety_gate_complete_upgrade_verifies_version() {
     let (env, gs) = build_golden_state();
     let client = seed_admin_role(&env, &gs.contract_id, &gs.admin);
     let dummy_hash = BytesN::from_array(&env, &[0; 32]);
+
+    // Register the current contract's WASM under the dummy_hash for testing
+    env.register_at(&dummy_hash, RustAcademyContract, ());
 
     client.set_upgrade_window(&gs.admin, &1u64, &0u64);
     client.start_upgrade(&gs.admin, &CURRENT_CONTRACT_VERSION, &dummy_hash);
