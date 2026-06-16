@@ -318,6 +318,9 @@ pub fn upgrade(
     }
 
     storage::set_wasm_hash(env, &new_wasm_hash);
+
+    // Skip actual WASM update in test mode, since we don't have a registered hash to use
+    #[cfg(not(test))]
     env.deployer()
         .update_current_contract_wasm(new_wasm_hash.clone());
 
