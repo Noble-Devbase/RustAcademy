@@ -4,6 +4,19 @@ import { CreateTutorProfileDto } from './dto/create-tutor-profile.dto';
 import { UpdateTutorProfileDto } from './dto/update-tutor-profile.dto';
 import { RateTutorDto } from './dto/rate-tutor.dto';
 
+interface TutorEarningsSummary {
+  tutorId: string;
+  earnedXlm: number;
+  totalPaidOut: number;
+  pendingPayouts: number;
+  payouts: Array<{
+    id: string;
+    amount: number;
+    status: 'pending' | 'completed';
+    paidAt?: Date;
+  }>;
+}
+
 @Injectable()
 export class TutorProfileService {
   private readonly profiles: Map<string, TutorProfileEntity> = new Map();
@@ -71,6 +84,21 @@ export class TutorProfileService {
       profile.totalEarnings += amount;
       profile.updatedAt = new Date();
     }
+  }
+
+  async getEarningsSummary(id: string): Promise<TutorEarningsSummary> {
+    const profile = this.profiles.get(id);
+    if (!profile) {
+      throw new NotFoundException('Tutor profile not found');
+    }
+
+    return {
+      tutorId: profile.id,
+      earnedXlm: profile.totalEarnings,
+      totalPaidOut: 0,
+      pendingPayouts: 0,
+      payouts: [],
+    };
   }
 
   async remove(id: string): Promise<boolean> {

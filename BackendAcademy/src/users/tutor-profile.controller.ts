@@ -42,6 +42,11 @@ export class TutorProfileController {
     return this.tutorService.findById(id);
   }
 
+  @Get(':id/earnings')
+  async getEarningsSummary(@Param('id', ParseUUIDPipe) id: string) {
+    return this.tutorService.getEarningsSummary(id);
+  }
+
   @Put(':id')
   async update(
     @Param('id', ParseUUIDPipe) id: string,
