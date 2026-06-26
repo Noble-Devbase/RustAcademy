@@ -5,6 +5,10 @@ import { TutorProfileModule } from './users/tutor-profile.module';
 
 @Module({
   imports: [TutorProfileModule],
+
+
+@Module({
+  imports: [CourseModule],
   controllers: [AppController],
   providers: [AppService],
 })
